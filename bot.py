@@ -1,7 +1,10 @@
 import asyncio
 import logging
 
-from tinkoff.invest import Client
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import StatesGroup, State
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from tinkoff.invest import Client, GetOperationsByCursorRequest
 
 from config import Portfolio, MoneyValue, Qutotation
 
@@ -16,12 +19,52 @@ from aiogram.utils import executor
 
 logging.basicConfig(level=logging.INFO, format="\033[33m {}".format('%(name)s %(levelname)s: %(message)s'))
 
-API_TOKEN = ''
+API_TOKEN = '5523251499:AAGtkpPhKGBvzt2efV4WKj-JAP19tAIit_Y'
 
 bot = Bot(token=API_TOKEN)
 
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
+
+class Search(StatesGroup):
+    name = State()
+
+
+def instrument_have(figi, account_id):
+    with Client(config.TOKEN_full) as client:
+
+        def get_request(cursor=""):
+            return GetOperationsByCursorRequest(
+                account_id=account_id,
+                instrument_id=figi,
+                cursor=cursor,
+                limit=1,
+            )
+
+        operations = client.operations.get_operations_by_cursor(get_request())
+        return operations.has_next
+
+
+def find(name_instrument):
+
+    with Client(config.TOKEN_full) as client:
+        r = client.instruments.find_instrument(query=name_instrument)
+
+        accounts = client.users.get_accounts()
+        account_id = accounts.accounts[0].id
+
+        inline_have = InlineKeyboardMarkup(row_width=1)
+        inline_not = InlineKeyboardMarkup(row_width=1)
+
+        for i in r.instruments:
+
+            if instrument_have(i.figi, account_id=account_id):
+                inline_have.add(InlineKeyboardButton(i.name, callback_data=i.figi))
+            else:
+                inline_not.add(InlineKeyboardButton(i.name, callback_data=i.figi))
+
+    return inline_have, inline_not
+
 
 async def portfolio_show(portfolio, id):
 
@@ -41,7 +84,8 @@ async def portfolio_show(portfolio, id):
 async def send_welcome(message: types.Message):
     kb = [
         [
-            types.KeyboardButton(text="Portfolio")
+            types.KeyboardButton(text="Portfolio"),
+            types.KeyboardButton(text="Search")
         ],
     ]
     keyboard = types.ReplyKeyboardMarkup(
@@ -76,6 +120,24 @@ async def portfolio_button_handler(message: types.Message):
             r.virtual_positions)
 
     await asyncio.create_task(portfolio_show(portfolio.show(), message.chat.id))
+
+
+@dp.message_handler(Text("Search"))
+async def search(message: types.Message):
+    await Search.name.set()
+    await message.answer("Enter name of instrument:")
+
+@dp.message_handler(state=Search.name)
+async def process_name(message: types.Message, state: FSMContext):
+
+    inline_have, inline_not = find(message.text)
+
+    await message.reply("Here what was found:")
+
+    await message.answer("🟢 Instruments that you have 🟢", reply_markup=inline_have)
+    await message.answer("🔴 Instruments that you don't have 🔴", reply_markup=inline_not)
+
+    await state.finish()
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
