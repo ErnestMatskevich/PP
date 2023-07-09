@@ -17,7 +17,7 @@ from aiogram.utils import executor
 
 logging.basicConfig(level=logging.INFO, format="\033[33m {}".format('%(name)s %(levelname)s: %(message)s'))
 
-API_TOKEN = '5523251499:AAGtkpPhKGBvzt2efV4WKj-JAP19tAIit_Y'
+API_TOKEN = ''
 
 
 async def post_order(figi, lots, direction):
