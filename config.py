@@ -1,177 +1,356 @@
-import datetime
-import random
+"""
+This is a main file with interface for our project. It contains 1 function for help demonstrate portfolio of user
+and 14 handlers (functions with decorators) for communicate with user
+"""
+import asyncio
+import logging
 
+import config
+from config import Portfolio, MoneyValue, Qutotation, Search, InstrumentSearch, InstrumentTerminal
 from tinkoff.invest import Client
+import aiogram.utils.markdown as md
+from aiogram import Bot, Dispatcher, types
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters import Text
+from aiogram.types import ParseMode
+from aiogram.utils import executor
 
-TOKEN_full = ""
+API_TOKEN = config.TOKEN_telegram
 
-TOKEN = ""
-
-TOKEN_telegram = ""
-
-
-def generate_key():
-    char = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u',
-            'v', 'w', 'x', 'y', 'z']
-    current_datetime = datetime.datetime.now()
-    data = str(current_datetime.day) + str(current_datetime.month) + str(current_datetime.year)
-    time = str(current_datetime.hour) + str(current_datetime.minute) + str(current_datetime.second)
-    random_part_num = str([str(random.randint(0, 9)) for i in range(10)]).replace(",", "'"). \
-        replace("'", " ").replace(" ", "").replace("[", "]").replace("]", "")
-    random_part_chr = str([str(random.choice(char)) for i in range(10)]).replace(",", "'"). \
-        replace("'", " ").replace(" ", "").replace("[", "]").replace("]", "")
-
-    return data + random_part_num + time + random_part_chr
+logging.basicConfig(level=logging.INFO, format="\033[33m {}".format('%(name)s %(levelname)s: %(message)s'))
+# Create the Telegram Bot
+bot = Bot(token=API_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 
 
-class Portfolio:
-    """ Portfolio storage class: statistics and positions """
+# All functions in this file are asyncronuos and except bottom one have @dp.message_nandler() for catch the user's text
+async def portfolio_show(portfolio: list[str], chat_id: str):
+    """
+    Asynchronous function that send portfolio as text message to chat with user and Telegram bot
 
-    def __init__(self, total_amount_shares, total_amount_bonds, total_amount_etf, total_amount_currencies,
-                 total_amount_futures, expected_yield, positions, account_id, total_amount_options, total_amount_sp,
-                 total_amount_portfolio, virtual_positions):
-        """ The constructor takes the corresponding arguments from the returned object PortfolioResponse() """
-        self.total_amount_shares = total_amount_shares
-        self.total_amount_bonds = total_amount_bonds
-        self.total_amount_etf = total_amount_etf
-        self.total_amount_currencies = total_amount_currencies
-        self.total_amount_futures = total_amount_futures
-        self.excpected_yield = expected_yield
-        self.positions = positions
-        self.account_id = account_id
-        self.total_amount_options = total_amount_options
-        self.total_amount_sp = total_amount_sp
-        self.total_amount_portfolio = total_amount_portfolio
-        self.virtual_positions = virtual_positions
+    :param portfolio: Takes list of strings from Portfolio.show()
+    :param chat_id: Takes String as identificator of chat with bot and user
+    :return: Nothing. Sent message(s)
+    """
+    answer = ""
 
-        def get_name_by_figi(figi):
-            """ Returns the asset name by its FIGI number """
-            with Client(TOKEN) as client:
-                return client.instruments.get_instrument_by(id_type=1, id=figi).instrument.name
+    for i in range(len(portfolio)):
+        answer = answer + str(portfolio[i]) + "\n"
 
-        for i in range(len(positions)):
-            tf_position = positions[i]
-            position_name = get_name_by_figi(tf_position.figi)
-            my_position = Position(tf_position.figi, position_name, tf_position.instrument_type,
-                                   tf_position.quantity.units,
-                                   MoneyValue(tf_position.average_position_price.units,
-                                              tf_position.average_position_price.nano,
-                                              tf_position.average_position_price.currency),
-                                   Qutotation(tf_position.expected_yield.units, tf_position.expected_yield.nano),
-                                   MoneyValue(tf_position.current_nkd.units, tf_position.current_nkd.nano,
-                                              tf_position.current_nkd.currency),
-                                   Qutotation(tf_position.average_position_price_pt.units,
-                                              tf_position.average_position_price_pt.nano),
-                                   MoneyValue(tf_position.current_price.units, tf_position.current_price.nano,
-                                              tf_position.current_price.currency),
-                                   MoneyValue(tf_position.average_position_price_fifo.units,
-                                              tf_position.average_position_price_fifo.nano,
-                                              tf_position.average_position_price_fifo.currency),
-                                   tf_position.quantity_lots.units, tf_position.blocked, tf_position.position_uid,
-                                   tf_position.instrument_uid,
-                                   MoneyValue(tf_position.var_margin.units, tf_position.var_margin.nano,
-                                              tf_position.var_margin.currency),
-                                   Qutotation(tf_position.expected_yield_fifo.units,
-                                              tf_position.expected_yield_fifo.nano)
-                                   )
-            positions[i] = my_position
-
-    def show(self):
-        """ The method returns statistics on the portfolio and position in a convenient form """
-
-        answer = ["Общая стоимость портфеля: " + self.total_amount_portfolio.full_price() + "\n",
-                  "Стоимость акций в портфеле: " + self.total_amount_shares.full_price() + "\n",
-                  "Cтоимость облигаций в портфеле: " + self.total_amount_bonds.full_price() + "\n",
-                  "Стоимость фондов в портфеле: " + self.total_amount_etf.full_price() + "\n",
-                  "Cтоимость валют в портфеле: " + self.total_amount_currencies.full_price() + "\n",
-                  "Cтоимость фьючерсов в портфеле: " + self.total_amount_futures.full_price() + "\n",
-                  "Текущая относительная доходность портфеля: " + str(self.excpected_yield.price()) + " %\n"]
-
-        [answer.append(self.positions[i].show()) for i in range(len(self.positions))]
-
-        return answer
-
-
-class Qutotation:
-    """ Class for storing numeric values without specifying a currency """
-
-    def __init__(self, units, nano):
-        """ The constructor accepts units - the integer part, nano - the fractional part """
-        self.units = units
-        self.nano = nano
-
-    def price(self):
-        """ The method returns the collected price as a float """
-        if self.units >= 0 and self.nano >= 0:
-            return round(float(str(self.units) + "." + str(int(str(self.nano)[::-1]))[::-1]), 7)
-        elif self.units < 0 and self.nano < 0:
-            return round(float(str(self.units) + "." + str(int(str(self.nano).replace("-", "")[::-1]))[::-1]), 7)
-        elif self.units >= 0 and self.nano < 0:
-            return round(float("-" + str(self.units) + "." + str(int(str(self.nano).replace("-", "")[::-1]))[::-1]), 7)
+        if i < len(portfolio) - 1:
+            # Checking if the message exceeds the length limit with next position
+            # if yes, then send current message and clear answer variable
+            if len(answer + str(portfolio[i + 1])) >= 4096:
+                await bot.send_message(chat_id, answer)
+                answer = ""
         else:
-            return round(float(str(self.units) + "." + str(int(str(self.nano)[::-1]))[::-1]), 7)
+            await bot.send_message(chat_id, answer)
 
 
-class MoneyValue(Qutotation):
-    """ Class for storing numeric values with currency """
+# Start communication
+@dp.message_handler(commands=['start', 'help'])
+async def send_welcome(message: types.Message):
+    """
+    This function activates by commands /start and /help, then sent a keybpard with menu
 
-    def __init__(self, units, nano, currency):
-        """The constructor accepts units - the integer part, nano - the fractional part, currency - the currency code"""
-        super().__init__(units, nano)
-        self.currency = currency
-
-    def get_currency(self):
-        """ The method returns the currency code """
-        return self.currency
-
-    def full_price(self):
-        """ The method returns a string with a numeric value and an indication of the currency """
-        return str(MoneyValue.price(self)) + " " + MoneyValue.get_currency(self)
-
-
-class Position:
-    """ Class for storing portfolio position """
-
-    def __init__(self, figi: str, name: str, instrument_type: str, quantity: int, average_position_price: MoneyValue,
-                 expected_yield: Qutotation, current_nkd: MoneyValue, average_position_price_pt: Qutotation,
-                 current_price: MoneyValue, average_position_price_fifo: MoneyValue, quantity_lots: int, blocked: bool,
-                 position_uid: str, instrument_uid: str, var_margin: MoneyValue, expected_yield_fifo: Qutotation):
-        """ The constructor takes the appropriate arguments from the returned PortfolioResponse.positions object and
-        a name """
-        self.figi = figi
-        self.name = name
-        self.instrument_type = instrument_type
-        self.quantity = quantity
-        self.average_position_price = average_position_price
-        self.expected_yield = expected_yield
-        self.current_nkd = current_nkd
-        self.average_position_price_pt = average_position_price_pt
-        self.current_price = current_price
-        self.average_position_price_fifo = average_position_price_fifo
-        self.quantity_lots = quantity_lots
-        self.blocked = blocked
-        self.position_uid = position_uid
-        self.instrument_uid = instrument_uid
-        self.var_margin = var_margin
-        self.expected_yield_fifo = expected_yield_fifo
-
-    def show(self):
-        """ The method returns a string with position information """
-
-        if self.instrument_type == "share":
-            type = "Акция "
-        elif self.instrument_type == "etf":
-            type = "Фонд "
-        elif self.instrument_type == "bond":
-            type = "Облигация "
-        else:
-            type = "Валюта "
-
-        answer = type + self.name + " " + str(self.quantity) + " шт " + "По средней цене: " + str(
-            self.average_position_price.full_price() + " На общую сумму: " +
-            str(self.quantity * self.average_position_price.price())) + " Доходность: " + str(
-            self.expected_yield.price()) + "\n"
-        return answer
+    :param message: Takes message that entered user (/start, /help)
+    :return: Nothing. Sends main menu in chat
+    """
+    # Create buttons for keyboard
+    kb = [
+        [
+            types.KeyboardButton(text="Portfolio"),
+            types.KeyboardButton(text="Trade terminal"),
+            types.KeyboardButton(text="Search")
+        ],
+    ]
+    # Set properties for keyboard
+    keyboard = types.ReplyKeyboardMarkup(
+        keyboard=kb,
+        resize_keyboard=True,
+        input_field_placeholder="Choose action"
+    )
+    await message.answer("Hello, " + message.from_user.first_name)
+    await message.answer("With help this bot you can trade directly in Telegram!", reply_markup=keyboard)
 
 
+# Search branch
+@dp.message_handler(Text("Search"))
+async def search(message: types.Message):
+    """
+    This function activates when user pressed Search buttons, then ask name of instrument and save it in FSM
 
+    :param message: Takes message that entered user (Search)
+    """
+    await Search.name.set()  # class Search() from config.py for store user data
+    await message.answer("Enter name of instrument:")
+
+
+@dp.message_handler(state=Search.name)
+async def process_name(message: types.Message, state: FSMContext):
+    """
+    This function activates after user's input name for Search
+
+    :param message: Takes message that entered user (name of financial instrument for searching)
+    :param state: Saves name as state in FSM
+    :return: Nothing. Sents keyboard in chat
+    """
+    inline_have, inline_not = config.find_instrument_by_name(message.text)
+
+    await message.reply("Here what was found:")
+
+    await message.answer("🟢 Instruments that you have 🟢", reply_markup=inline_have)
+    await message.answer("🔴 Instruments that you don't have 🔴", reply_markup=inline_not)
+
+    await state.finish()
+
+
+@dp.callback_query_handler()
+async def instrument_page(callback: types.CallbackQuery, state: FSMContext):
+    """
+    This function create a page for picked stock from the bot's message with all instruments which was found
+    by user entered name
+
+    :param callback: This object represents an incoming callback query from a callback button in an inline keyboard.
+    :param state: Saves data of instrument as states in FSM
+    """
+
+    # Create keyboard with 2 buttons Buy and Sell
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+    markup.add("Buy", "Sell")
+
+    with Client(config.TOKEN_full) as client:
+        # Get all data of picked stock from Tinkoff
+        request = client.instruments.get_instrument_by(id_type=1, id=callback.data).instrument
+
+        last_price = client.market_data.get_last_prices(figi=[callback.data]).last_prices[0].price
+        last_price_cls = config.Qutotation(last_price.units, last_price.nano)  # Convert last_price to Quotation format
+
+        await callback.message.answer(
+            request.name + "\n" + request.instrument_type + "\n" + str(last_price_cls.price()),
+            reply_markup=markup)
+
+    # Initialization FSM for save all needs data of instrument
+
+    await InstrumentSearch.figi.set()
+
+    async with state.proxy() as data:
+        data['figi'] = callback.data
+        await InstrumentSearch.amount_in_lot.set()
+        data['amount_in_lot'] = request.lot
+        await InstrumentSearch.name.set()
+        data['name'] = request.name
+
+    await InstrumentSearch.next()  # Switch FSM to direction(buy/sell) button
+
+    await callback.answer()
+
+
+@dp.message_handler(lambda message: message.text in ["Buy", "Sell"], state=InstrumentSearch.direction)
+async def direction(message: types.Message, state: FSMContext):
+    """
+    This function activates by pressing buttons Buy/Sell, save user's type(direction) of trade order
+
+    :param message: Takes message that entered user (Buy/Sell)
+    :param state: Saves direction as state in FSM
+    :return: Nothing. Sends message in chat
+    """
+    async with state.proxy() as data:
+        data['direction'] = message.text
+
+    await InstrumentSearch.next()  # Switch FSM to amount of lots in this trade order
+
+    # Message asks of amount lots for Buy/Sell
+    # 1 lot usually is not equal 1 stock. Message inform about how many instruments in 1 lot.
+    await message.answer("Enter amount of lots for " +
+                         ("buying " if data['direction'] == "Buy" else "selling") +
+                         "1 lot = " + str(data['amount_in_lot']) + " amount")
+
+
+@dp.message_handler(lambda message: message.text.isdigit, state=InstrumentSearch.lots)
+async def set_lots_search(message: types.Message, state: FSMContext):
+    """
+    This function activates after user enters amount of lots. Function saves amounts and return message with all
+    user's input for matching trade order
+
+    :param message: Takes message that entered user (amount of lots: int)
+    :param state: Saves lots as state in FSM
+    :return: Nothing. Sends information about order in chat
+    """
+    async with state.proxy() as data:
+        data['lots'] = int(message.text)
+
+    await InstrumentSearch.next()  # Switch FSM to status state (OK/Cancel)
+
+    # Create keyboard with 2 buttons OK and cancel for adjustment trade order
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+    markup.add("OK", "Cancel")
+
+    # Send message with user's trade order and 2 options: send order or cancel order (if e.g there is mistake)
+    await bot.send_message(
+        message.chat.id,
+        md.text(
+            md.text(md.bold(data['name'])),
+            md.text('Amount of lots: ', md.code(data['lots'])),
+            md.text('Type of operation:', data['direction']),
+            sep='\n',
+        ),
+        reply_markup=markup,
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+@dp.message_handler(Text("OK"), state=InstrumentSearch.status)
+async def send_order_nandler(message: types.Message, state: FSMContext):
+    """
+    This function activates when user pressed OK button and send trade order. Function posts trade order to broker's
+    server and inform about it in the chat
+
+    :param message: Takes message that entered user (OK)
+    :param state: Takes states from FSM
+    """
+
+    async with state.proxy() as data:
+        # With help post_order() function sends trade order with FIGI, amounts and type to broker's server
+        await asyncio.create_task(config.post_order(data['figi'], data['lots'], data['direction']))
+
+    # If sent successfully (without errors), then client will see this message
+    await message.answer("Your oder has been completed")
+
+
+# Portfolio branch
+@dp.message_handler(Text("Portfolio"))
+async def portfolio_button_handler(message: types.Message):
+    """
+    This function activates when user pressed Portfolio button from main menu and initializes Portfolio branch
+
+    :param message: Takes message that entered user (Portfolio)
+    :return: Nothing. Sends all information about Portfolio in chat
+    """
+    await message.reply("Loading of portfolio")
+    with Client(config.TOKEN_full) as client:
+        acc_id = client.users.get_accounts().accounts[0].id
+        r = client.operations.get_portfolio(account_id=acc_id)
+
+        portfolio = Portfolio(
+            MoneyValue(r.total_amount_shares.units, r.total_amount_shares.nano, r.total_amount_shares.currency),
+            MoneyValue(r.total_amount_bonds.units, r.total_amount_bonds.nano, r.total_amount_bonds.currency),
+            MoneyValue(r.total_amount_etf.units, r.total_amount_etf.nano, r.total_amount_etf.currency),
+            MoneyValue(r.total_amount_currencies.units, r.total_amount_currencies.nano,
+                       r.total_amount_currencies.currency),
+            MoneyValue(r.total_amount_futures.units, r.total_amount_futures.nano, r.total_amount_futures.currency),
+            Qutotation(r.expected_yield.units, r.expected_yield.units),
+            r.positions,
+            r.account_id,
+            MoneyValue(r.total_amount_options.units, r.total_amount_options.nano, r.total_amount_options.currency),
+            MoneyValue(r.total_amount_sp.units, r.total_amount_sp.nano, r.total_amount_sp.currency),
+            MoneyValue(r.total_amount_portfolio.units, r.total_amount_portfolio.nano,
+                       r.total_amount_portfolio.currency),
+            r.virtual_positions)
+
+    await asyncio.create_task(portfolio_show(portfolio.show(), message.chat.id))
+
+
+# Trade terminal branch
+@dp.message_handler(Text("Trade terminal"))
+async def cmd_start(message: types.Message):
+    """
+    This function activates when user pressed Trade terminal button from main menu and initializes Trade terminal branch
+    :param message: Takes message that entered user (Trade terminal)
+    """
+    # Set state
+    await InstrumentTerminal.figi.set()
+
+    await message.reply("Write figi number")
+
+
+@dp.message_handler(state=InstrumentTerminal.figi)
+async def process_figi(message: types.Message, state: FSMContext):
+    """
+    This function activates when user entered FIGI and saves it in FSM
+
+    :param message: Takes message that entered user (FIGI number)
+    :param state: Save FIGI as state in FSM
+    """
+    async with state.proxy() as data:
+        data['figi'] = message.text
+
+    await InstrumentTerminal.next()
+    await message.reply("How many lots do you need?")
+
+
+# Check lots
+@dp.message_handler(lambda message: not message.text.isdigit(), state=InstrumentTerminal.lots)
+async def process_lots_invalid(message: types.Message):
+    """
+    This function activates when user entered not digit for lots input and informes about it in chat.
+
+    :param message: Takes wrong (not integer) input from user
+    :return: Message about data type error
+    """
+    return await message.reply("Amount of lots should be integer.\nHow many lots do you need? (onlu digits)")
+
+
+@dp.message_handler(lambda message: message.text.isdigit(), state=InstrumentTerminal.lots)
+async def process_lots(message: types.Message, state: FSMContext):
+    """
+    This function activates when user enter amount of lots and continue branch next
+
+    :param message: Takes right (integer) input from user
+    :param state: Save amount of lots as state in FSM
+    """
+    # Update state and data
+    await InstrumentTerminal.next()
+    await state.update_data(lots=int(message.text))
+
+    # Configure ReplyKeyboardMarkup
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+    markup.add("Buy", "Sell")
+
+    await message.reply("What do you want?", reply_markup=markup)
+
+
+@dp.message_handler(lambda message: message.text not in ["Buy", "Sell"], state=InstrumentTerminal.direction)
+async def process_order_invalid(message: types.Message):
+    """
+    This function checks using keyboard
+    """
+    return await message.reply("Invalid type, use keyboard.")
+
+
+@dp.message_handler(state=InstrumentTerminal.direction)
+async def process_order(message: types.Message, state: FSMContext):
+    """
+    This function activates when user entered direction (type of trade order) and sends trade order.
+
+    :param message: Takes direction: Buy or Sell
+    :param state: Saves direction as state in FSM
+    :return: Nothing. Sends messages about order in chat.
+    """
+    async with state.proxy() as data:
+        data['direction'] = message.text
+
+        markup = types.ReplyKeyboardRemove()
+
+        await asyncio.create_task(config.post_order(data['figi'], data['lots'], data['direction']))
+
+        await bot.send_message(
+            message.chat.id,
+            md.text(
+                md.text(md.bold(data['name'])),
+                md.text('Amount of lot: ', md.code(data['lots'])),
+                md.text('Type of operation:', data['direction']),
+                sep='\n',
+            ),
+            reply_markup=markup,
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
+    # Finish conversation
+    await state.finish()
+
+
+if __name__ == '__main__':
+    executor.start_polling(dp, skip_updates=True)
